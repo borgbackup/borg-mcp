@@ -125,6 +125,17 @@ async def test_latest_archive(server, call):
     assert 0 <= result["age_seconds"] < 3600
 
 
+async def test_prune_preview_deletes_nothing(server, call):
+    before = await call(server, "list_archives", {"repo": "it"})
+    # keep only 1 daily: with both archives made today, borg would prune one of them
+    result = await call(server, "prune_preview", {"repo": "it", "keep_daily": 1})
+    assert result["dry_run"] is True
+    assert result["would_keep_count"] + result["would_prune_count"] == 2
+    assert result["would_prune_count"] >= 1
+    after = await call(server, "list_archives", {"repo": "it"})
+    assert [a["name"] for a in after["archives"]] == [a["name"] for a in before["archives"]]
+
+
 async def test_list_archive_contents(file_server, call):
     result = await call(file_server, "list_archive_contents", {"repo": "it", "archive": "archive1"})
     paths = [i["path"] for i in result["items"]]

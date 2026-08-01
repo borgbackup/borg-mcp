@@ -37,6 +37,14 @@ elif sub == "repo-list":
     print(json.dumps({"archives": [arch("archive1"), arch("archive2")], "repository": {"id": "beef" * 16}}))
 elif sub == "info":
     print(json.dumps({"archives": [arch("archive2")], "repository": {"id": "beef" * 16}, **local}))
+elif sub == "prune":
+    if "--dry-run" not in args:
+        sys.stderr.write("FAKE BORG: refusing a real prune" + chr(10))
+        sys.exit(99)
+    print(json.dumps({"archives": [
+        dict(arch("archive2"), kept=True, keep_rule="daily"),
+        dict(arch("archive1"), kept=False),
+    ]}))
 elif sub == "list":
     for i in range(5):
         print(json.dumps({"path": "data/file%d.txt" % i, "type": "-", "size": 100 + i, "mtime": now}))

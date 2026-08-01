@@ -1,11 +1,16 @@
 import pytest
 
+import itertools
+
 from borg_mcp.commands import (
+    KEEP_RULES,
+    MAX_KEEP,
     ValidationError,
     archive_info_cmd,
     diff_archives_cmd,
     latest_archive_cmd,
     list_archive_cmd,
+    prune_preview_cmd,
     repo_info_cmd,
     repo_list_cmd,
     version_cmd,
@@ -114,6 +119,46 @@ def test_diff_archive_names_validated(bad):
         diff_archives_cmd(bad, "a2")
     with pytest.raises(ValidationError):
         diff_archives_cmd("a1", bad)
+
+
+def test_prune_preview():
+    assert prune_preview_cmd({"daily": 7}) == ["prune", "--dry-run", "--list", "--json", "--keep-daily=7"]
+    assert prune_preview_cmd({"weekly": 4, "daily": 7}) == [
+        "prune",
+        "--dry-run",
+        "--list",
+        "--json",
+        "--keep-daily=7",
+        "--keep-weekly=4",  # fixed order, independent of input order
+    ]
+
+
+def test_prune_always_dry_run():
+    """The safety net: no combination of accepted input may produce a real prune."""
+    for count in range(1, len(KEEP_RULES) + 1):
+        for rules in itertools.combinations(KEEP_RULES, count):
+            cmd = prune_preview_cmd(dict.fromkeys(rules, 1))
+            assert cmd[0] == "prune"
+            assert "--dry-run" in cmd
+    # ... and every value a client can get past validation keeps the dry run
+    for value in (0, 1, MAX_KEEP):
+        assert "--dry-run" in prune_preview_cmd({"daily": value})
+
+
+def test_prune_needs_a_keep_rule():
+    with pytest.raises(ValidationError, match="at least one keep rule"):
+        prune_preview_cmd({})
+
+
+def test_prune_unknown_rule():
+    with pytest.raises(ValidationError, match="unknown keep rule"):
+        prune_preview_cmd({"daily": 7, "fortnightly": 2})
+
+
+@pytest.mark.parametrize("value", [-1, MAX_KEEP + 1, "7", 7.0, True, None])
+def test_prune_bad_keep_value(value):
+    with pytest.raises(ValidationError):
+        prune_preview_cmd({"daily": value})
 
 
 def test_no_option_smuggling_via_match():

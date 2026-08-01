@@ -60,6 +60,13 @@ def _capped_limit(limit: int | None, cap: int) -> int:
     return limit
 
 
+def _prune_entry(archive: dict[str, Any]) -> dict[str, Any]:
+    entry = {"name": archive.get("name"), "time": archive.get("time"), "id": archive.get("id")}
+    if archive.get("keep_rule"):
+        entry["keep_rule"] = archive["keep_rule"]
+    return entry
+
+
 def _sanitized(result: Any) -> Any:
     """Drop server-local paths from borg's JSON (cache/security dirs) - noise for the agent."""
     if isinstance(result, dict):
@@ -127,6 +134,49 @@ def create_server(config: ServerConfig) -> MCPServer:
         latest = archives[0]
         age = _age_seconds(latest.get("end") or latest.get("start"))
         return {"repo": r.name, "latest": latest, "age_seconds": age, "age": _age_human(age)}
+
+    @server.tool(annotations=READ_ONLY)
+    async def prune_preview(
+        repo: str,
+        keep_secondly: int | None = None,
+        keep_minutely: int | None = None,
+        keep_hourly: int | None = None,
+        keep_daily: int | None = None,
+        keep_weekly: int | None = None,
+        keep_monthly: int | None = None,
+        keep_yearly: int | None = None,
+    ) -> dict[str, Any]:
+        """Show which archives a prune with these retention rules would remove.
+
+        This is always a dry run: borg-mcp cannot delete anything. At least one keep rule is required.
+        """
+        r = get_repo(repo)
+        given = {
+            "secondly": keep_secondly,
+            "minutely": keep_minutely,
+            "hourly": keep_hourly,
+            "daily": keep_daily,
+            "weekly": keep_weekly,
+            "monthly": keep_monthly,
+            "yearly": keep_yearly,
+        }
+        keep = {rule: value for rule, value in given.items() if value is not None}
+        result = await runner.run_json(r, commands.prune_preview_cmd(keep))
+        archives = result.get("archives", []) if isinstance(result, dict) else []
+        cap = config.max_items
+        kept = [a for a in archives if a.get("kept")]
+        pruned = [a for a in archives if not a.get("kept")]
+        out: dict[str, Any] = {
+            "repo": r.name,
+            "keep_rules": {f"keep_{k}": v for k, v in keep.items()},
+            "dry_run": True,
+            "would_keep_count": len(kept),
+            "would_prune_count": len(pruned),
+            "would_keep": [_prune_entry(a) for a in kept[:cap]],
+            "would_prune": [_prune_entry(a) for a in pruned[:cap]],
+            "note": "preview only - borg-mcp never deletes archives",
+        }
+        return out
 
     # File-level tools disclose the names of the backed up files, so they are not
     # registered at all unless the operator opted in - an agent cannot even see them.

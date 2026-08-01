@@ -111,7 +111,11 @@ MCP client configuration (e.g. Claude Code `.mcp.json`):
 | `list_archives` | which archives exist? (paginated, filterable) |
 | `archive_info` | stats, duration, hostname for one archive |
 | `latest_archive` | is my backup fresh? |
-| `prune_preview` | what *would* prune remove? (always dry-run) |
+| `prune_preview` | what *would* a prune with these keep rules remove? |
+
+`prune_preview` never deletes anything: `--dry-run` is part of the command
+template and cannot be influenced by the client, and the test suite asserts
+that every prune command borg-mcp can construct contains it.
 
 These tools exist only when `allow_file_listing = true`, because they
 disclose the names of the backed up files:

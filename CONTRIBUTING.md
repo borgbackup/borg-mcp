@@ -58,6 +58,8 @@ We use [Black](https://black.readthedocs.io/) for automated code formatting, wit
 We use `tox` and `pytest` for testing.
 - Run all tests: `tox`
 - Integration tests need a working borg2 binary and are skipped otherwise.
+  Point them at a specific one with `BORG_MCP_TEST_BORG=/path/to/borg`.
+- `tox -e bandit` runs a static security check over the sources.
 
 ## Security
 

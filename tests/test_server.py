@@ -5,7 +5,7 @@ import pytest
 from borg_mcp.server import create_server
 from conftest import read_argv_log
 
-TOOLS = {"list_repositories", "repo_info", "list_archives", "archive_info", "latest_archive"}
+TOOLS = {"list_repositories", "repo_info", "list_archives", "archive_info", "latest_archive", "prune_preview"}
 FILE_TOOLS = {"list_archive_contents", "diff_archives"}
 
 
@@ -152,6 +152,45 @@ async def test_latest_archive_empty(make_fake_borg, server_config, call):
     result = await call(create_server(config), "latest_archive", {"repo": "test"})
     assert result["latest"] is None
     assert "no archives" in result["note"]
+
+
+async def test_prune_preview(server_config, call):
+    result = await call(create_server(server_config), "prune_preview", {"repo": "test", "keep_daily": 7})
+    assert result["dry_run"] is True
+    assert result["keep_rules"] == {"keep_daily": 7}
+    assert result["would_keep_count"] == 1
+    assert result["would_prune_count"] == 1
+    assert result["would_keep"][0]["name"] == "archive2"
+    assert result["would_keep"][0]["keep_rule"] == "daily"
+    assert result["would_prune"][0]["name"] == "archive1"
+
+
+async def test_prune_preview_passes_dry_run(fake_borg_logged, server_config, call):
+    borg, log = fake_borg_logged
+    config = dataclasses.replace(server_config, borg_binary=borg)
+    await call(create_server(config), "prune_preview", {"repo": "test", "keep_daily": 7, "keep_weekly": 4})
+    (argv,) = read_argv_log(log)
+    assert argv == [
+        "prune",
+        "--dry-run",
+        "--list",
+        "--json",
+        "--keep-daily=7",
+        "--keep-weekly=4",
+        "--repo=/path/to/repo",
+    ]
+
+
+async def test_prune_preview_requires_keep_rule(server_config):
+    with pytest.raises(Exception, match="at least one keep rule"):
+        await create_server(server_config).call_tool("prune_preview", {"repo": "test"})
+
+
+async def test_prune_preview_rejects_bad_values(server_config):
+    server = create_server(server_config)
+    for args in ({"repo": "test", "keep_daily": -1}, {"repo": "test", "keep_daily": 10001}):
+        with pytest.raises(Exception, match="keep_daily must be"):
+            await server.call_tool("prune_preview", args)
 
 
 async def test_unknown_alias(server_config):
