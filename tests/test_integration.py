@@ -4,6 +4,7 @@ Uses `borg` from PATH if it is borg2, or the binary named by BORG_MCP_TEST_BORG.
 Skipped entirely when no borg2 is available.
 """
 
+import dataclasses
 import os
 import shutil
 import subprocess
@@ -120,13 +121,25 @@ async def test_latest_archive(server, call):
 
 
 async def test_wrong_passphrase_fails_cleanly(config, call):
-    import dataclasses
-
     bad_repo = dataclasses.replace(config.repos["it"], passcommand="echo wrong")
     bad_config = dataclasses.replace(config, repos={"it": bad_repo})
     server = create_server(bad_config)
     with pytest.raises(Exception, match="failed for repository 'it'"):
         await server.call_tool("repo_info", {"repo": "it"})
+
+
+async def test_failing_passcommand_is_redacted(config, tmp_path):
+    """borg reports a failing passcommand including its argv - it must not reach the agent."""
+    script = tmp_path / "getpass.sh"
+    script.write_text("#!/bin/sh\nexit 1\n")
+    script.chmod(0o700)
+    secret = "SUPERSECRET42"
+    bad_repo = dataclasses.replace(config.repos["it"], passcommand=f"{script} --token={secret}")
+    server = create_server(dataclasses.replace(config, repos={"it": bad_repo}))
+    with pytest.raises(Exception) as exc:
+        await server.call_tool("repo_info", {"repo": "it"})
+    assert secret not in str(exc.value)
+    assert "***" in str(exc.value)
 
 
 def test_check_cli(repo, tmp_path, capsys):

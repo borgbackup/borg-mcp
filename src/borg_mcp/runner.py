@@ -8,6 +8,8 @@ against the same repository are serialized.
 import asyncio
 import json
 import logging
+import re
+import shlex
 import subprocess
 import time
 from typing import Any
@@ -19,6 +21,39 @@ logger = logging.getLogger(__name__)
 MAX_OUTPUT_BYTES = 128 * 1024 * 1024
 MAX_STDERR_BYTES = 1024 * 1024
 STDERR_TAIL_CHARS = 2000
+
+TRACEBACK_MARKER = "Traceback (most recent call last):"
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")  # everything but \t and \n
+
+
+def sanitize_stderr(stderr: bytes, passcommand: str | None) -> tuple[str, str]:
+    """Make borg's stderr safe to hand to the MCP client.
+
+    Returns (client_tail, full_tail): the client gets a redacted,
+    control-character-free tail with tracebacks reduced to their final line;
+    full_tail (redacted likewise, but with the whole traceback) is for the
+    server log.
+    """
+    text = stderr.decode("utf-8", errors="replace").strip()
+    if passcommand:
+        # a failing passcommand is echoed back in borg's error message
+        # (via CalledProcessError) - the command line may embed a secret
+        text = text.replace(passcommand, "***")
+        try:
+            text = text.replace(str(shlex.split(passcommand)), "***")
+        except ValueError:
+            pass
+    text = ANSI_RE.sub("", text)
+    text = CONTROL_RE.sub("", text)
+    full = text[-STDERR_TAIL_CHARS:]
+    client = full
+    if TRACEBACK_MARKER in full:
+        # tracebacks reveal server internals - the agent only needs the conclusion
+        lines = [line for line in full.splitlines() if line.strip()]
+        last = lines[-1] if lines else ""
+        client = f"{last} (borg printed a traceback, see the server log for details)"
+    return client, full
 
 
 class BorgError(Exception):
@@ -94,8 +129,10 @@ class BorgRunner:
             duration = time.monotonic() - start
         logger.info("audit: repo=%s cmd=%s rc=%d duration=%.2fs", repo.name, " ".join(cmd), rc, duration)
         if rc != 0:
-            tail = stderr.decode("utf-8", errors="replace").strip()[-STDERR_TAIL_CHARS:]
-            raise BorgError(f"borg {cmd[0]} failed for repository {repo.name!r} (rc={rc}): {tail}")
+            client_tail, full_tail = sanitize_stderr(stderr, repo.passcommand)
+            if client_tail != full_tail:
+                logger.warning("borg %s stderr (repo=%s):\n%s", cmd[0], repo.name, full_tail)
+            raise BorgError(f"borg {cmd[0]} failed for repository {repo.name!r} (rc={rc}): {client_tail}")
         try:
             return json.loads(stdout)
         except ValueError as e:
@@ -105,8 +142,10 @@ class BorgRunner:
         """Return the borg version string, e.g. "2.0.0b23"."""
         stdout, stderr, rc = await self._execute([self.config.borg_binary, "--version"], base_env())
         if rc != 0:
-            tail = stderr.decode("utf-8", errors="replace").strip()[-STDERR_TAIL_CHARS:]
-            raise BorgError(f"borg --version failed (rc={rc}): {tail}")
+            client_tail, full_tail = sanitize_stderr(stderr, None)
+            if client_tail != full_tail:
+                logger.warning("borg --version stderr:\n%s", full_tail)
+            raise BorgError(f"borg --version failed (rc={rc}): {client_tail}")
         words = stdout.decode("utf-8", errors="replace").split()
         if len(words) != 2 or words[0] != "borg":
             raise BorgError(f"unexpected borg --version output: {stdout.decode('utf-8', errors='replace')!r}")

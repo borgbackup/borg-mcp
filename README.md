@@ -27,7 +27,10 @@ prompt-injected or simply wrong. Therefore:
 - **No secrets over MCP.** Passphrases come from configured passcommands on
   the server side and never appear in tool results or logs.
 - **Sanitized, size-capped output.** Raw file listings are off by default
-  (explicit config opt-in); all listings are paginated.
+  (explicit config opt-in); all listings are paginated. borg's stderr is
+  sanitized before an error reaches the agent: tracebacks are withheld
+  (logged server-side instead), the passcommand line is redacted, and
+  control characters are stripped.
 - **Read-only by construction — and by enforcement.** borg-mcp never runs
   prune/delete/compact/repair/restore. For defense in depth, run it against
   repositories accessed via an SSH key that is restricted server-side to
@@ -71,6 +74,11 @@ location = "ssh://backup@host/./home"
 description = "workstation home dirs, nightly"
 passcommand = "cat /path/to/passphrase-file"
 ```
+
+The passcommand must read the passphrase from somewhere safe: a file only
+readable by the borg-mcp user, or a keyring/secret-service CLI. Never put
+the passphrase inline (as in `passcommand = "echo secret"`): the command
+line is visible in `ps` output while it runs.
 
 ## Usage
 
