@@ -1,4 +1,6 @@
-# borg-mcp
+<p align="center">
+  <img src="assets/logo.svg" alt="borg-mcp" width="480">
+</p>
 
 A **read-only [MCP](https://modelcontextprotocol.io/) server** for
 [BorgBackup](https://www.borgbackup.org/) operational status.
