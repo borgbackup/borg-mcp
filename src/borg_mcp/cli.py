@@ -36,9 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
 def setup_logging(args: argparse.Namespace) -> None:
     # stdout is the MCP protocol channel and must stay clean - log to stderr or a file.
     kwargs: dict = {"filename": args.log_file} if args.log_file else {"stream": sys.stderr}
-    logging.basicConfig(
-        level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s: %(message)s", **kwargs
-    )
+    level = getattr(logging, args.log_level.upper())
+    logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s", force=True, **kwargs)
+    # the audit trail (one line per borg invocation, logged by borg_mcp.runner at INFO)
+    # must be on regardless of --log-level - a silently disabled audit log is worse than none
+    logging.getLogger("borg_mcp.runner").setLevel(min(level, logging.INFO))
 
 
 async def run_check(config: ServerConfig, aliases: list[str]) -> int:

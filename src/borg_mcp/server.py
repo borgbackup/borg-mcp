@@ -83,7 +83,7 @@ def create_server(config: ServerConfig) -> MCPServer:
     ) -> dict[str, Any]:
         """List archives in a repository (newest last).
 
-        match: only archives matching this pattern (shell glob, e.g. "sh:home-*").
+        match: only archives matching this pattern (shell glob, e.g. "sh:home-*"; re: patterns are not accepted).
         first/last: only the N oldest/newest matching archives (mutually exclusive).
         """
         r = get_repo(repo)

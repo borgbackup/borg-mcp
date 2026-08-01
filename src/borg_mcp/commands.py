@@ -41,12 +41,21 @@ def repo_info_cmd() -> list[str]:
     return ["repo-info", "--json"]
 
 
+def _checked_match(value, what: str) -> str:
+    value = _checked_str(value, what)
+    # borg's re: patterns run Python regexes on the server - a crafted pattern with
+    # catastrophic backtracking would let the agent burn CPU (ReDoS). Globs suffice.
+    if value.startswith("re:") or ":re:" in value:
+        raise ValidationError(f"{what}: regular expression patterns (re:) are not allowed, use sh: globs")
+    return value
+
+
 def repo_list_cmd(match: str | None = None, first: int | None = None, last: int | None = None) -> list[str]:
     if first is not None and last is not None:
         raise ValidationError("give either first or last, not both")
     cmd = ["repo-list", "--json"]
     if match is not None:
-        cmd.append(f"--match-archives={_checked_str(match, 'match')}")
+        cmd.append(f"--match-archives={_checked_match(match, 'match')}")
     if first is not None:
         cmd.append(f"--first={_checked_int(first, 'first')}")
     if last is not None:

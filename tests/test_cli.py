@@ -1,6 +1,9 @@
+import argparse
+import logging
+
 import pytest
 
-from borg_mcp.cli import build_parser, main
+from borg_mcp.cli import build_parser, main, setup_logging
 
 
 def write_config(tmp_path, borg, location="/path/to/repo"):
@@ -69,6 +72,22 @@ def test_check_borg1_rejected(tmp_path, make_fake_borg, capsys):
         main(["check", "--config", write_config(tmp_path, borg1)])
     assert exc.value.code == 2
     assert "needs borg2" in capsys.readouterr().out
+
+
+def test_audit_log_always_enabled():
+    # the audit trail (borg_mcp.runner at INFO) must be on even at the default warning level
+    setup_logging(argparse.Namespace(log_level="warning", log_file=None))
+    assert logging.getLogger("borg_mcp.runner").isEnabledFor(logging.INFO)
+    assert not logging.getLogger().isEnabledFor(logging.INFO)
+    setup_logging(argparse.Namespace(log_level="debug", log_file=None))
+    assert logging.getLogger("borg_mcp.runner").isEnabledFor(logging.DEBUG)
+
+
+def test_check_emits_audit_line(tmp_path, fake_borg, capsys):
+    # at the default log level (warning), the audit line must still reach stderr
+    with pytest.raises(SystemExit):
+        main(["check", "--config", write_config(tmp_path, fake_borg), "test"])
+    assert "audit: repo=test cmd=repo-info --json rc=0" in capsys.readouterr().err
 
 
 def test_serve_borg_failure_exits(tmp_path, capsys):

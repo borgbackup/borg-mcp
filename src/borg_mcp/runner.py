@@ -17,11 +17,31 @@ from borg_mcp.config import RepoConfig, ServerConfig, base_env, repo_env
 logger = logging.getLogger(__name__)
 
 MAX_OUTPUT_BYTES = 128 * 1024 * 1024
+MAX_STDERR_BYTES = 1024 * 1024
 STDERR_TAIL_CHARS = 2000
 
 
 class BorgError(Exception):
     """borg could not be executed or returned an error."""
+
+
+class _OutputLimitExceeded(Exception):
+    pass
+
+
+async def _read_capped(stream: asyncio.StreamReader, cap: int) -> bytes:
+    # enforce the cap while reading, so oversized output kills the process
+    # instead of exhausting server memory first
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await stream.read(65536)
+        if not chunk:
+            return b"".join(chunks)
+        total += len(chunk)
+        if total > cap:
+            raise _OutputLimitExceeded
+        chunks.append(chunk)
 
 
 class BorgRunner:
@@ -39,13 +59,31 @@ class BorgRunner:
             )
         except OSError as e:
             raise BorgError(f"cannot execute {argv[0]!r}: {e}") from e
+        assert proc.stdout is not None and proc.stderr is not None
+        stdout_task = asyncio.create_task(_read_capped(proc.stdout, MAX_OUTPUT_BYTES))
+        stderr_task = asyncio.create_task(_read_capped(proc.stderr, MAX_STDERR_BYTES))
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=self.config.timeout)
-        except TimeoutError:
+            async with asyncio.timeout(self.config.timeout):
+                stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
+                rc = await proc.wait()
+        except (TimeoutError, _OutputLimitExceeded) as exc:
             proc.kill()
+            for task in (stdout_task, stderr_task):
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, _OutputLimitExceeded):
+                    pass
+            # proc.wait() resolves only once both pipes report EOF, but a capped/cancelled
+            # reader leaves its paused pipe undrained - drain the bounded leftovers first.
+            for stream in (proc.stdout, proc.stderr):
+                while await stream.read(65536):
+                    pass
             await proc.wait()
-            raise BorgError(f"borg did not finish within {self.config.timeout}s and was killed")
-        return stdout, stderr, proc.returncode or 0
+            if isinstance(exc, TimeoutError):
+                raise BorgError(f"borg did not finish within {self.config.timeout}s and was killed")
+            raise BorgError(f"borg produced too much output (> {MAX_OUTPUT_BYTES} bytes) and was killed")
+        return stdout, stderr, rc
 
     async def run_json(self, repo: RepoConfig, cmd: list[str]) -> Any:
         """Run one allowlisted borg command against a configured repository."""
@@ -58,8 +96,6 @@ class BorgRunner:
         if rc != 0:
             tail = stderr.decode("utf-8", errors="replace").strip()[-STDERR_TAIL_CHARS:]
             raise BorgError(f"borg {cmd[0]} failed for repository {repo.name!r} (rc={rc}): {tail}")
-        if len(stdout) > MAX_OUTPUT_BYTES:
-            raise BorgError(f"borg {cmd[0]} produced too much output ({len(stdout)} bytes)")
         try:
             return json.loads(stdout)
         except ValueError as e:

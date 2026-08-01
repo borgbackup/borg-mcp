@@ -94,3 +94,22 @@ async def test_output_size_cap(make_fake_borg, monkeypatch):
     runner, repo = make_runner(borg)
     with pytest.raises(BorgError, match="too much output"):
         await runner.run_json(repo, ["repo-list", "--json"])
+
+
+async def test_endless_output_killed_promptly(make_fake_borg, monkeypatch):
+    # the cap must kill the process while it streams, not buffer until timeout/OOM
+    monkeypatch.setattr("borg_mcp.runner.MAX_OUTPUT_BYTES", 100_000)
+    borg = make_fake_borg('import sys\nwhile True:\n    sys.stdout.write("x" * 65536)\n    sys.stdout.flush()\n')
+    runner, repo = make_runner(borg, timeout=60)
+    start = time.monotonic()
+    with pytest.raises(BorgError, match="too much output"):
+        await runner.run_json(repo, ["repo-list", "--json"])
+    assert time.monotonic() - start < 10
+
+
+async def test_large_stderr_no_deadlock(make_fake_borg):
+    # both pipes are drained concurrently - stderr larger than the OS pipe buffer must not deadlock
+    body = 'import json, sys\nsys.stderr.write("e" * 262144)\nsys.stderr.flush()\nprint(json.dumps({"ok": 1}))\n'
+    runner, repo = make_runner(make_fake_borg(body))
+    result = await runner.run_json(repo, ["repo-info", "--json"])
+    assert result == {"ok": 1}

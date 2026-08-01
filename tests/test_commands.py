@@ -55,6 +55,18 @@ def test_bad_string_values(value, message):
         repo_list_cmd(match=value)
 
 
+@pytest.mark.parametrize("value", ["re:(a+)+b", "re:.*", "name:re:x"])
+def test_regex_match_rejected(value):
+    # re: patterns would run agent-supplied regexes on the server (ReDoS)
+    with pytest.raises(ValidationError, match="not allowed"):
+        repo_list_cmd(match=value)
+
+
+@pytest.mark.parametrize("value", ["home", "sh:home-*", "aid:0fae632d", "host:MacBook-Pro-4"])
+def test_safe_match_accepted(value):
+    assert repo_list_cmd(match=value) == ["repo-list", "--json", f"--match-archives={value}"]
+
+
 def test_archive_name_none_rejected():
     # None means "not given" for the optional match filter, but never for a required archive name
     with pytest.raises(ValidationError, match="must be a string"):
