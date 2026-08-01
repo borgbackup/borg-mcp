@@ -1,0 +1,12 @@
+__pycache__/
+*.py[co]
+*.egg-info/
+.venv/
+.tox/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+build/
+dist/
+src/borg_mcp/_version.py

@@ -1,0 +1,100 @@
+[project]
+name = "borg-mcp"
+dynamic = ["version"]
+authors = [{name="The Borg Collective (see AUTHORS file)"}]
+maintainers = [
+    {name="Thomas Waldmann", email="tw@waldmann-edv.de"},
+]
+description = "Read-only MCP server for BorgBackup operational status"
+requires-python = ">=3.11"
+keywords = ["backup", "borgbackup", "mcp", "monitoring"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: System :: Archiving :: Backup",
+]
+license = "BSD-3-Clause"
+license-files = ["LICENSE", "AUTHORS"]
+dependencies = [
+    "mcp >=2.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/borgbackup/borg-mcp"
+"Bug Tracker" = "https://github.com/borgbackup/borg-mcp/issues"
+"Repository" = "https://github.com/borgbackup/borg-mcp"
+
+[project.scripts]
+borg-mcp = "borg_mcp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=78.1.1", "wheel", "setuptools-scm[toml]"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+write_to = "src/borg_mcp/_version.py"
+write_to_template = "__version__ = version = {version!r}\n"
+tag.strict = false
+fallback_version = "0.1.dev0"
+
+[tool.black]
+line-length = 120
+skip-magic-trailing-comma = true
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [".git", ".mypy_cache", ".ruff_cache", ".tox", ".venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "integration: needs a real borg2 binary (skipped if not available)",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict_optional = false
+local_partial_types = true
+show_error_codes = true
+files = "src/borg_mcp/**/*.py"
+
+[tool.tox]
+requires = ["tox>=4.19"]
+env_list = ["py{311,315}", "black", "ruff", "mypy"]
+
+[tool.tox.env_run_base]
+deps = ["pytest", "pytest-asyncio"]
+commands = [["python", "-m", "pytest", "-v", "-rs", "{posargs:tests}"]]
+pass_env = ["BORG_MCP_TEST_BORG"]
+
+[tool.tox.env.black]
+skip_install = true
+deps = ["black"]
+commands = [["black", "--check", "."]]
+
+[tool.tox.env.ruff]
+skip_install = true
+deps = ["ruff"]
+commands = [["ruff", "check", "."]]
+
+[tool.tox.env.mypy]
+deps = ["mypy", "pytest"]
+commands = [["mypy"]]
