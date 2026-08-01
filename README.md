@@ -113,6 +113,14 @@ MCP client configuration (e.g. Claude Code `.mcp.json`):
 | `latest_archive` | is my backup fresh? |
 | `prune_preview` | what *would* prune remove? (always dry-run) |
 
+These tools exist only when `allow_file_listing = true`, because they
+disclose the names of the backed up files:
+
+| tool | answers |
+|---|---|
+| `list_archive_contents` | which files are in this archive? |
+| `diff_archives` | which files changed between two archives? |
+
 ## License
 
 BSD-3-Clause, see [LICENSE](LICENSE) and [AUTHORS](AUTHORS).

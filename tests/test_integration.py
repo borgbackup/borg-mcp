@@ -80,6 +80,11 @@ def server(config):
     return create_server(config)
 
 
+@pytest.fixture
+def file_server(config):
+    return create_server(dataclasses.replace(config, allow_file_listing=True))
+
+
 async def test_repo_info(server, call):
     result = await call(server, "repo_info", {"repo": "it"})
     repo_id = result["repository"]["id"]
@@ -118,6 +123,54 @@ async def test_latest_archive(server, call):
     assert result["latest"]["name"] == "archive2"
     assert result["age_seconds"] is not None
     assert 0 <= result["age_seconds"] < 3600
+
+
+async def test_list_archive_contents(file_server, call):
+    result = await call(file_server, "list_archive_contents", {"repo": "it", "archive": "archive1"})
+    paths = [i["path"] for i in result["items"]]
+    assert any(p.endswith("file1.txt") for p in paths)
+    assert all("path" in i and "type" in i for i in result["items"])
+
+
+async def test_list_archive_contents_path_prefix_literal(file_server, call):
+    # a path prefix that exists
+    data_dir = next(
+        p
+        for p in (
+            i["path"]
+            for i in (await call(file_server, "list_archive_contents", {"repo": "it", "archive": "archive1"}))["items"]
+        )
+        if p.endswith("data")
+    )
+    result = await call(
+        file_server, "list_archive_contents", {"repo": "it", "archive": "archive1", "path_prefix": data_dir}
+    )
+    assert result["count"] >= 1
+    assert all(i["path"].startswith(data_dir) for i in result["items"])
+    # a smuggled regex selector is treated literally, so it matches nothing (and runs no regex)
+    result = await call(
+        file_server, "list_archive_contents", {"repo": "it", "archive": "archive1", "path_prefix": "re:.*"}
+    )
+    assert result["count"] == 0
+
+
+async def test_list_archive_contents_limit(file_server, call):
+    result = await call(file_server, "list_archive_contents", {"repo": "it", "archive": "archive1", "limit": 1})
+    assert result["count"] == 1
+    assert "stopped after 1 items" in result["note"]
+
+
+async def test_diff_archives(file_server, call):
+    result = await call(file_server, "diff_archives", {"repo": "it", "archive1": "archive1", "archive2": "archive2"})
+    # archive2 was created after adding file2.txt
+    paths = [c["path"] for c in result["changes"]]
+    assert any(p.endswith("file2.txt") for p in paths)
+
+
+async def test_file_tools_absent_unless_enabled(server):
+    tools = {t.name for t in await server.list_tools()}
+    assert "list_archive_contents" not in tools
+    assert "diff_archives" not in tools
 
 
 async def test_wrong_passphrase_fails_cleanly(config, call):

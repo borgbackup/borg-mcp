@@ -37,6 +37,12 @@ elif sub == "repo-list":
     print(json.dumps({"archives": [arch("archive1"), arch("archive2")], "repository": {"id": "beef" * 16}}))
 elif sub == "info":
     print(json.dumps({"archives": [arch("archive2")], "repository": {"id": "beef" * 16}, **local}))
+elif sub == "list":
+    for i in range(5):
+        print(json.dumps({"path": "data/file%d.txt" % i, "type": "-", "size": 100 + i, "mtime": now}))
+elif sub == "diff":
+    print(json.dumps({"path": "data/file1.txt", "changes": [{"type": "modified", "added": 5, "removed": 2}]}))
+    print(json.dumps({"path": "data/new.txt", "changes": [{"type": "added"}]}))
 else:
     sys.exit(2)
 """
@@ -86,6 +92,13 @@ def repo_config():
 @pytest.fixture
 def server_config(fake_borg, repo_config):
     return ServerConfig(repos={"test": repo_config}, borg_binary=fake_borg, timeout=30, max_items=50)
+
+
+@pytest.fixture
+def file_listing_config(fake_borg, repo_config):
+    return ServerConfig(
+        repos={"test": repo_config}, borg_binary=fake_borg, timeout=30, max_items=50, allow_file_listing=True
+    )
 
 
 @pytest.fixture

@@ -3,7 +3,9 @@ import pytest
 from borg_mcp.commands import (
     ValidationError,
     archive_info_cmd,
+    diff_archives_cmd,
     latest_archive_cmd,
+    list_archive_cmd,
     repo_info_cmd,
     repo_list_cmd,
     version_cmd,
@@ -79,6 +81,39 @@ def test_bad_int_values(value):
         repo_list_cmd(first=value)
     with pytest.raises(ValidationError):
         repo_list_cmd(last=value)
+
+
+def test_list_archive():
+    assert list_archive_cmd("arch") == ["list", "--json-lines", "arch"]
+    assert list_archive_cmd("arch", "home/tw") == ["list", "--json-lines", "arch", "pp:home/tw"]
+
+
+def test_diff_archives():
+    assert diff_archives_cmd("a1", "a2") == ["diff", "--json-lines", "a1", "a2"]
+    assert diff_archives_cmd("a1", "a2", "home") == ["diff", "--json-lines", "a1", "a2", "pp:home"]
+
+
+@pytest.mark.parametrize("prefix", ["re:(a+)+b", "sh:**", "fm:*", "pp:other"])
+def test_path_prefix_selectors_neutralized(prefix):
+    # a smuggled selector must end up inside the literal pp: path, not as its own selector
+    (arg,) = list_archive_cmd("arch", prefix)[3:]
+    assert arg == f"pp:{prefix}"
+
+
+@pytest.mark.parametrize("value", ["-x", "a\nb", "", "x" * 201])
+def test_bad_path_prefix_rejected(value):
+    with pytest.raises(ValidationError):
+        list_archive_cmd("arch", value)
+    with pytest.raises(ValidationError):
+        diff_archives_cmd("a1", "a2", value)
+
+
+@pytest.mark.parametrize("bad", ["--delete", "-x", "a\nb"])
+def test_diff_archive_names_validated(bad):
+    with pytest.raises(ValidationError):
+        diff_archives_cmd(bad, "a2")
+    with pytest.raises(ValidationError):
+        diff_archives_cmd("a1", bad)
 
 
 def test_no_option_smuggling_via_match():

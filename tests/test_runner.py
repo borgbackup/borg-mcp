@@ -157,6 +157,59 @@ async def test_stderr_control_chars_stripped(make_fake_borg):
     assert "\x07" not in message
 
 
+async def test_json_lines_parsing(fake_borg):
+    runner, repo = make_runner(fake_borg)
+    items, truncated = await runner.run_json_lines(repo, ["list", "--json-lines", "a"], 10)
+    assert [i["path"] for i in items] == ["data/file%d.txt" % i for i in range(5)]
+    assert truncated is False
+
+
+async def test_json_lines_limit(fake_borg):
+    runner, repo = make_runner(fake_borg)
+    items, truncated = await runner.run_json_lines(repo, ["list", "--json-lines", "a"], 3)
+    assert len(items) == 3
+    assert truncated is True
+
+
+async def test_json_lines_endless_output_killed_promptly(make_fake_borg):
+    # an archive with millions of files must not be read to the end
+    body = (
+        "import json, sys\n"
+        "i = 0\n"
+        "while True:\n"
+        '    sys.stdout.write(json.dumps({"path": "f%d" % i}) + chr(10))\n'
+        "    sys.stdout.flush()\n"
+        "    i += 1\n"
+    )
+    runner, repo = make_runner(make_fake_borg(body), timeout=60)
+    start = time.monotonic()
+    items, truncated = await runner.run_json_lines(repo, ["list", "--json-lines", "a"], 100)
+    assert len(items) == 100
+    assert truncated is True
+    assert time.monotonic() - start < 10
+
+
+async def test_json_lines_error_exit(make_fake_borg):
+    borg = make_fake_borg('import sys\nprint("borg: archive not found", file=sys.stderr)\nsys.exit(2)\n')
+    runner, repo = make_runner(borg)
+    with pytest.raises(BorgError, match="archive not found"):
+        await runner.run_json_lines(repo, ["list", "--json-lines", "a"], 10)
+
+
+async def test_json_lines_unparseable(make_fake_borg):
+    borg = make_fake_borg('print("not json at all")\n')
+    runner, repo = make_runner(borg)
+    with pytest.raises(BorgError, match="unparseable"):
+        await runner.run_json_lines(repo, ["list", "--json-lines", "a"], 10)
+
+
+async def test_json_lines_timeout(make_fake_borg):
+    borg = make_fake_borg("import time\ntime.sleep(30)\n")
+    runner, repo = make_runner(borg, timeout=1)
+    with pytest.raises(BorgError, match="did not finish within 1s"):
+        await runner.run_json_lines(repo, ["list", "--json-lines", "a"], 10)
+
+
 async def test_large_stderr_no_deadlock(make_fake_borg):
     # both pipes are drained concurrently - stderr larger than the OS pipe buffer must not deadlock
     body = 'import json, sys\nsys.stderr.write("e" * 262144)\nsys.stderr.flush()\nprint(json.dumps({"ok": 1}))\n'

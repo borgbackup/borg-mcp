@@ -69,3 +69,19 @@ def archive_info_cmd(archive: str) -> list[str]:
 
 def latest_archive_cmd() -> list[str]:
     return ["info", "--json", "--last=1"]
+
+
+def list_archive_cmd(archive: str, path_prefix: str | None = None) -> list[str]:
+    cmd = ["list", "--json-lines", _checked_str(archive, "archive")]
+    if path_prefix is not None:
+        # "pp:" (path prefix) makes borg treat the value literally: a selector the
+        # agent tries to smuggle in ("re:...") becomes part of the path, not a pattern
+        cmd.append(f"pp:{_checked_str(path_prefix, 'path_prefix')}")
+    return cmd
+
+
+def diff_archives_cmd(archive1: str, archive2: str, path_prefix: str | None = None) -> list[str]:
+    cmd = ["diff", "--json-lines", _checked_str(archive1, "archive1"), _checked_str(archive2, "archive2")]
+    if path_prefix is not None:
+        cmd.append(f"pp:{_checked_str(path_prefix, 'path_prefix')}")
+    return cmd

@@ -50,6 +50,16 @@ def _age_human(seconds: float | None) -> str | None:
     return f"{seconds / 86400:.1f} days"
 
 
+def _capped_limit(limit: int | None, cap: int) -> int:
+    if limit is None:
+        return cap
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError("limit must be a positive integer")
+    if limit > cap:
+        raise ValueError(f"limit is capped at {cap} on this server")
+    return limit
+
+
 def _sanitized(result: Any) -> Any:
     """Drop server-local paths from borg's JSON (cache/security dirs) - noise for the agent."""
     if isinstance(result, dict):
@@ -117,5 +127,51 @@ def create_server(config: ServerConfig) -> MCPServer:
         latest = archives[0]
         age = _age_seconds(latest.get("end") or latest.get("start"))
         return {"repo": r.name, "latest": latest, "age_seconds": age, "age": _age_human(age)}
+
+    # File-level tools disclose the names of the backed up files, so they are not
+    # registered at all unless the operator opted in - an agent cannot even see them.
+    if config.allow_file_listing:
+
+        @server.tool(annotations=READ_ONLY)
+        async def list_archive_contents(
+            repo: str, archive: str, path_prefix: str | None = None, limit: int | None = None
+        ) -> dict[str, Any]:
+            """List the files and directories stored in an archive.
+
+            path_prefix: only items at or below this path inside the archive (literal path, not a pattern).
+            limit: maximum number of items to return (default and maximum: the server's max_items).
+            """
+            r = get_repo(repo)
+            n = _capped_limit(limit, config.max_items)
+            cmd = commands.list_archive_cmd(archive, path_prefix)
+            items, truncated = await runner.run_json_lines(r, cmd, n)
+            out: dict[str, Any] = {"repo": r.name, "archive": archive, "count": len(items), "items": items}
+            if truncated:
+                out["note"] = f"stopped after {n} items - use path_prefix or a larger limit to see more"
+            return out
+
+        @server.tool(annotations=READ_ONLY)
+        async def diff_archives(
+            repo: str, archive1: str, archive2: str, path_prefix: str | None = None, limit: int | None = None
+        ) -> dict[str, Any]:
+            """Show which files differ between two archives (archive1 -> archive2).
+
+            path_prefix: only items at or below this path inside the archives (literal path, not a pattern).
+            limit: maximum number of changes to return (default and maximum: the server's max_items).
+            """
+            r = get_repo(repo)
+            n = _capped_limit(limit, config.max_items)
+            cmd = commands.diff_archives_cmd(archive1, archive2, path_prefix)
+            changes, truncated = await runner.run_json_lines(r, cmd, n)
+            out: dict[str, Any] = {
+                "repo": r.name,
+                "archive1": archive1,
+                "archive2": archive2,
+                "count": len(changes),
+                "changes": changes,
+            }
+            if truncated:
+                out["note"] = f"stopped after {n} changes - use path_prefix or a larger limit to see more"
+            return out
 
     return server
